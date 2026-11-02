@@ -810,7 +810,7 @@ def autorip_set(body: AutoRip, user=Depends(require_user)):
 # back the same way when untouched, which is what makes "save" on a page you did not
 # retype your SMTP password into not wipe it. `list_shares` established the precedent
 # of never returning a stored password at all; these follow it.
-SECRET_SETTINGS = ("smtp_password", "ntfy_token")
+SECRET_SETTINGS = ("smtp_password", "ntfy_token", "tmdb_api_key")
 SECRET_MASK = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
 
 

@@ -603,6 +603,192 @@ check("or into Specials when that is the setting",
       "/Specials/" in rip._episode_name(sj, rip._settings(), splan,
                                         splan["episodes"][0]), True)
 
+print("a disputed show can be picked, and the rest of the set follows it")
+fresh_share()
+os.environ["RIPARR_MOCK_DISC"] = "dvd"
+os.environ["RIPARR_WIKIDATA"] = "1"
+db.set("tv_metadata", True)
+db.set("on_season_disc", "unsure")
+_saved = (rip.tv.search_series, rip.tv.episodes, rip.tv.dvd_order, rip.tv.show,
+          rip.WD.search_series, rip.WD.series_facts)
+SEAQUEST = {"id": 3292, "name": "seaQuest DSV", "year": "1993", "score": 0.31, "runtime": 61}
+DS9 = {"id": 493, "name": "Star Trek: Deep Space Nine", "year": "1993", "network": "Syndication",
+       "score": 0, "runtime": 60}
+rip.tv.search_series = lambda name, limit=6: [DS9] if "Star Trek" in name else [SEAQUEST]
+rip.tv.show = lambda sid: DS9 if sid == 493 else None
+rip.tv.dvd_order = lambda sid: {}
+rip.tv.episodes = lambda sid, include_specials=True: [
+    {"season": 1, "number": n, "name": "%s %d" % ("DS9" if sid == 493 else "SQ", n),
+     "runtime": 60, "special": False} for n in range(1, 21)]
+rip.WD.search_series = lambda name: [{"qid": "Q1", "label": "Star Trek: Deep Space Nine",
+                                      "tvmaze": [493]}]
+rip.WD.series_facts = lambda ids: {}
+d1 = run_all(new_job("DS9S1D1"))
+p1 = db.episode_plan(d1)
+check("held for the dispute", (d1["state"], p1["witness"]["show"]), ("needs_input", "disputed"))
+check("TVmaze's pick and Wikidata's are both offered",
+      [o["id"] for o in p1["series_options"]], [3292, 493])
+ok, _msg = rip.answer(d1["id"], season=1, first_episode=1, series_id=493,
+                      name=p1["series"])
+check("picking Wikidata's is accepted", ok, True)
+check("and filed under it, with its names",
+      (send(d1["id"])["state"], db.episode_plan(db.get_job(d1["id"]))["series"],
+       db.episode_plan(db.get_job(d1["id"]))["episodes"][0]["episode_title"]),
+      ("done", "Star Trek: Deep Space Nine", "DS9 1"))
+n1 = max(e["episode"] for e in db.episode_plan(db.get_job(d1["id"]))["episodes"])
+d2 = run_all(new_job("DS9S1D2"))
+p2 = db.episode_plan(d2)
+check("disc 2 needs no answer", d2["state"], "done")
+check("disc 2 has the same show", (d2["series_id"], p2["series"]),
+      (493, "Star Trek: Deep Space Nine"))
+check("and carries on the numbering", p2["episodes"][0]["episode"], n1 + 1)
+contains("and says where that came from", " ".join(p2["warnings"]), "carried on from DS9S1D1")
+check("a label with no set marker follows nothing", rip.tv.set_key("DS9"), "")
+
+print("a bonus disc of a filed set goes to specials, every title of it")
+# DS9 S1 D6's real title list. It used to be filed as a film of its longest title.
+_read_titles = rip.read_titles
+_bonus = [{"index": i, "seconds": n, "bytes": n * 1000, "segments": "1,2", "source": "",
+           "chapters": 2}
+          for i, n in enumerate([1086, 860, 609, 287, 177, 323, 194, 161, 144, 135, 143, 176,
+                                 136, 162])]
+rip.read_titles = lambda *a, **k: [dict(t) for t in _bonus]
+db.set("tv_specials_folder", "Season 00")
+b1 = run_all(new_job("DS9S1D6"))
+pb = db.episode_plan(b1)
+check("not a film", (b1["kind"], b1["season"], b1["title"]),
+      ("tv", 0, "Star Trek: Deep Space Nine"))
+check("held for a person", (b1["state"], pb["hold"]["reason"]), ("needs_input", "bonus"))
+check("every title is kept, in disc order",
+      [e["title_index"] for e in pb["episodes"]], list(range(14)))
+check("numbered from one, and named for the disc",
+      (pb["episodes"][0]["episode"], pb["episodes"][0]["episode_title"]),
+      (1, "S1 Disc 6 Feature 01"))
+ok, _msg = rip.answer(b1["id"], season=0, first_episode=1, name=pb["series"])
+check("checking it is accepted", ok, True)
+check("and it files", send(b1["id"])["state"], "done")
+_named = [f for f in share_files() if "Season 00" in f]
+check("fourteen specials in the library", len(_named), 14)
+contains("under the show, with the disc's names", _named[0],
+         "Star Trek Deep Space Nine (1993)/Season 00/Star Trek Deep Space Nine - S00E01 - S1 Disc 6 Feature 01")
+check("nothing went to Movies", [f for f in share_files() if f.startswith("Movies/")], [])
+again = run_all(new_job("DS9S1D6"))
+check("a re-rip keeps its own numbers, so it replaces its own files",
+      db.episode_plan(again)["episodes"][0]["episode"], 1)
+rip.answer(again["id"], skip=True)
+b2 = run_all(new_job("DS9S2D7"))
+check("the next bonus disc carries on the numbers",
+      db.episode_plan(b2)["episodes"][0]["episode"], 15)
+rip.answer(b2["id"], skip=True)
+check("a bonus disc tells the next disc nothing about its season",
+      db.filed_set_disc(rip.tv.set_key, "ds9")["season"], 1)
+_saved_episodes = rip.tv.episodes
+rip.tv.episodes = lambda sid, include_specials=True: [
+    {"season": 0, "number": 30, "name": "A real special", "runtime": 60, "special": True}]
+b3 = run_all(new_job("DS9S3D7"))
+check("a guide's own specials keep their numbers",
+      db.episode_plan(b3)["episodes"][0]["episode"], 31)
+rip.answer(b3["id"], skip=True)
+rip.tv.episodes = _saved_episodes
+b5 = run_all(new_job("DS9S5D7"))
+rip.answer(b5["id"], season=1, first_episode=1, name=db.episode_plan(b5)["series"])
+check("corrected to a real season, it takes the guide's names",
+      db.episode_plan(db.get_job(b5["id"]))["episodes"][0]["episode_title"], "DS9 1")
+send(b5["id"])
+_film_job = rip._identify(new_job("HEAT"), rip._settings())
+check("the same titles with no set stay a film",
+      (_film_job["kind"] if _film_job else "parked", _film_job["chosen_title"]), (None, 0))
+_bonus[0]["seconds"] = 2 * 3600
+b4 = rip._identify(new_job("DS9S4D7"), rip._settings())
+check("a film sold in the set stays a film",
+      (b4["kind"] if b4 else "parked", b4["chosen_title"]), (None, 0))
+rip.read_titles = _read_titles
+(rip.tv.search_series, rip.tv.episodes, rip.tv.dvd_order, rip.tv.show,
+ rip.WD.search_series, rip.WD.series_facts) = _saved
+os.environ.pop("RIPARR_WIKIDATA")
+os.environ.pop("RIPARR_MOCK_DISC")
+db.set("tv_metadata", False)
+
+print("with a TMDB key, numbers follow TMDB")
+fresh_share()
+db.conn().execute("DELETE FROM jobs"); db.conn().execute("DELETE FROM discs"); db.conn().commit()
+_tv_real = rip.tv.tmdb_episodes
+def _tmdb(sid, key):
+    names = ["Emissary", "Past Prologue", "A Man Alone", "Babel", "Captive Pursuit", "Q-Less", "Dax"]
+    return [{"season": 1, "number": i + 1, "name": n, "special": False,
+             "runtime": 90 if i == 0 else 45} for i, n in enumerate(names)]
+rip.tv.tmdb_episodes = _tmdb
+db.set("tmdb_api_key", "test-key")
+db.set("on_season_disc", "auto")
+_found = {"episodes": [{"index": 0, "seconds": 5429}, {"index": 1, "seconds": 2718},
+                       {"index": 2, "seconds": 2715}], "doubles": [0],
+          "order_source": "index", "confidence": "low"}
+fp = rip.tv.build_plan(_found, season=1, first_episode=1, series=DS9,
+                       episode_list=_tmdb(493, "k"), fit_runtimes=True)
+check("the 90-minute opener is one episode",
+      [(e["episode"], e["episode_last"], e["episode_title"]) for e in fp["episodes"]],
+      [(1, 1, "Emissary"), (2, 2, "Past Prologue"), (3, 3, "A Man Alone")])
+split = [dict(e, runtime=45) for e in _tmdb(493, "k")]
+sp = rip.tv.build_plan(_found, season=1, first_episode=1, series=DS9, episode_list=split,
+                       fit_runtimes=True)
+check("a guide listing two parts keeps the double", sp["episodes"][0]["episode_last"], 2)
+check("a list without a key's guide is left alone",
+      rip.tv.build_plan(_found, season=1, series=DS9, episode_list=_tmdb(493, "k")
+                        )["episodes"][0]["episode_last"], 2)
+check("TMDB answered", rip._guide(493, "k")[1], "tmdb")
+rip.tv.tmdb_episodes = lambda sid, key: []
+check("TMDB failing falls back to TVmaze", rip._guide(493, "k")[1], "tvmaze")
+check("no key never asks TMDB", rip._guide(493, "")[1], "tvmaze")
+
+print("a disc filed from TMDB, and the next one when TMDB can't answer")
+_saved = (rip.tv.search_series, rip.tv.episodes, rip.tv.dvd_order, rip.tv._get, rip.tv._tmdb_get)
+rip.tv.search_series = lambda name, limit=6: [dict(DS9, name="Named Show", id=78)]
+rip.tv.episodes = lambda sid, include_specials=True: [
+    {"season": 1, "number": n, "name": "Maze %d" % n, "runtime": 60, "special": False}
+    for n in range(1, 21)]
+rip.tv.dvd_order = lambda sid: {}
+db.set("tv_metadata", True)
+db.set("on_season_disc", "unsure")
+rip.tv.tmdb_episodes = lambda sid, key: [
+    {"season": 1, "number": n, "name": "Tmdb %d" % n, "runtime": 45, "special": False}
+    for n in range(1, 21)]
+t1 = run_all(new_job("NAMED_SHOW_S01_D01"))
+tp = db.episode_plan(t1)
+check("filed with TMDB's names", (t1["state"], tp["numbering"], tp["episodes"][0]["episode_title"]),
+      ("done", "tmdb", "Tmdb 1"))
+rip.tv.tmdb_episodes = lambda sid, key: []
+t2 = run_all(new_job("NAMED_SHOW_S01_D02"))
+check("TVmaze's numbers wait for a person, even carried on",
+      (t2["state"], db.episode_plan(t2)["numbering"], db.episode_plan(t2)["hold"]["reason"]),
+      ("needs_input", "tvmaze", "numbering"))
+rip.tv.tmdb_episodes = _tv_real
+
+print("TMDB's answers are read into the same shape as TVmaze's")
+rip.tv._get = lambda url, timeout=12: {"externals": {"thetvdb": 72073, "imdb": "tt0106145"}}
+_calls = []
+def _fake_tmdb(path, key):
+    _calls.append(path)
+    if path.startswith("/find/72073?external_source=tvdb_id"):
+        return {"tv_results": [{"id": 580}]}
+    if path == "/tv/580":
+        return {"seasons": [{"season_number": 0}, {"season_number": 1}]}
+    return {"season/0": {"episodes": [{"episode_number": 1, "name": "Extra"}]},
+            "season/1": {"episodes": [{"episode_number": 1, "name": "Emissary", "runtime": 90}]}}
+rip.tv._tmdb_get = _fake_tmdb
+rip.tv._tmdb_cache.clear()
+check("special flagged, runtime kept", rip.tv.tmdb_episodes(493, "k"),
+      [{"season": 0, "number": 1, "name": "Extra", "runtime": 0, "special": True},
+       {"season": 1, "number": 1, "name": "Emissary", "runtime": 90, "special": False}])
+def _boom(path, key):
+    raise OSError("401")
+rip.tv._tmdb_get = _boom
+rip.tv._tmdb_cache.clear()
+check("a refused key is an empty answer, not a crash", rip.tv.tmdb_episodes(493, "bad"), [])
+(rip.tv.search_series, rip.tv.episodes, rip.tv.dvd_order, rip.tv._get, rip.tv._tmdb_get) = _saved
+db.set("tv_metadata", False)
+db.set("tmdb_api_key", "")
+db.set("on_season_disc", "unsure")
+
 print("")
 shutil.rmtree(_tmp, ignore_errors=True)
 shutil.rmtree(SH.MOCK_SHARE_ROOT, ignore_errors=True)

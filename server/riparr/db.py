@@ -257,6 +257,9 @@ DEFAULTS = {
     # Plex and Jellyfin still match perfectly -- the names are for humans reading a
     # folder. See tv.py for why this is TVmaze and not TMDB.
     "tv_metadata": True,
+    # Optional. With a key, episode numbers and names come from TMDB, which is what Plex's
+    # and Jellyfin's default agents read, instead of TVmaze. See tv.tmdb_episodes.
+    "tmdb_api_key": "",
     # Where a special goes. Plex accepts either; Jellyfin documents "Season 00" and
     # prefers a descriptive name over S00E01 when the metadata does not know the
     # special. Both read this folder as season zero.
@@ -869,6 +872,27 @@ def row_span(e):
     if "position" not in e:
         last = int(e.get("episode_last") or e.get("episode") or 0)
     return first, max(first, last)
+
+
+def filed_set_disc(key_of, key, fingerprint=None):
+    """The newest filed TV job from the same box set as this disc, or None.
+
+    `key_of` turns a volume label into its set key (tv.set_key). Filed jobs only: what a
+    person confirmed or let stand, and never a plan still waiting for them. Another disc
+    only, so that forgetting a disc really does make it start again.
+    """
+    if not key:
+        return None
+    rows = conn().execute(
+        # Season 0 is a bonus disc, which says nothing about the season of the next disc.
+        "SELECT disc_label, title, series_id, season, fingerprint, episode_plan FROM jobs "
+        "WHERE kind='tv' AND state='done' AND disc_label IS NOT NULL AND title IS NOT NULL "
+        "AND COALESCE(season, -1) <> 0 ORDER BY id DESC").fetchall()
+    for row in rows:
+        if key_of(row["disc_label"]) == key and (
+                not fingerprint or row["fingerprint"] != fingerprint):
+            return dict(row)
+    return None
 
 
 def season_start(series_id, season, series_name=None, disc=None, count=0):

@@ -2214,6 +2214,13 @@ settingsPages.ripping = async (s) => {
         "From TVmaze, which needs no account. Off gives you correctly numbered files "
         + "with no names — Plex and Jellyfin still match those perfectly, because they "
         + "match on the numbers.")}
+    <label class="f"><span>TMDB API key</span>
+      <input data-set="tmdb_api_key" type="password" value="${esc(s.tmdb_api_key || "")}"
+             placeholder="optional">
+      <span class="help">Numbers and names episodes the way TMDB does, which is what Jellyfin
+        and Plex read by default. TVmaze can count a show differently: it splits a
+        feature-length opener into two episodes, and then every later number is one off.
+        Without a key, TVmaze is used.</span></label>
     <label class="f"><span>Specials go in</span>
       <select data-set="tv_specials_folder">
         ${opt("Season 00", "Season 00 (default)", s.tv_specials_folder)}
