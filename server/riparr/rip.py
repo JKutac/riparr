@@ -559,7 +559,9 @@ def _apply_season_answer(job, plan, season, first_episode, series_id, include,
     if episode_titles:
         for k, v in episode_titles.items():
             row = by_index.get(int(k))
-            if row is not None:
+            # The page sends every name on screen. Only one that differs from the plan's
+            # is a correction; the rest are the old names, and renumbering replaces them.
+            if row is not None and (v or "").strip() != (row.get("episode_title") or ""):
                 row["episode_title"] = (v or "").strip()
                 typed.add(int(k))
 
@@ -607,6 +609,7 @@ def _apply_season_answer(job, plan, season, first_episode, series_id, include,
                                else ([], ""))
     if numbering:
         plan["numbering"] = numbering
+    plan["guide_names"] = tv.guide_names(episode_list, plan.get("season"))
     dvd_map = plan.get("dvd_map") or {}
     if series_id is not None or season is not None:
         # A different show or season is a different DVD order, or none.
@@ -1568,10 +1571,13 @@ def _identify_season(job, s, d, titles, remembered):
     # memory above is per disc, so without this every disc of a set whose label TVmaze
     # can't read asked the same question again. Set by label, never over this disc's own
     # memory. A label's season still wins, so S2D1 carries the show and not the season.
+    # Looked up even when this disc has a memory: a memory can be an answer to a job
+    # that was then skipped, and a filed neighbour is better evidence of where it starts.
+    neighbour = db.filed_set_disc(tv.set_key, tv.set_key(label) or tv.set_key(disc_name),
+                                  job.get("fingerprint"))
     sibling = None
     if not remembered.get("series_id") and not remembered.get("series_name"):
-        sibling = db.filed_set_disc(tv.set_key, tv.set_key(label) or tv.set_key(disc_name),
-                                    job.get("fingerprint"))
+        sibling = neighbour
     if sibling and season is None:
         season = sibling.get("season")
 
@@ -1615,26 +1621,37 @@ def _identify_season(job, s, d, titles, remembered):
         if len(seasons) == 1:
             season = seasons.pop()
 
-    first = remembered.get("first_episode")
+    remembered_first = remembered.get("first_episode")
+    first = remembered_first
     continued = False
     guessed = False
-    if first is None:
-        # How many numbers this disc uses, so a disc whose *successor* is already in
-        # the library can count back from it. A double-length title uses two.
-        count = sum(2 if t["index"] in (found.get("doubles") or []) else 1
-                    for t in found["episodes"])
-        first, sure = db.season_start(
-            (series or {}).get("id"), season,
-            series_name=(series or {}).get("name") or series_name,
-            disc=disc_no, count=count)
-        # "Continued" means a disc of this season is already in the library, which is
-        # what settles the broadcast-order question below -- not merely that the start
-        # is certain. Disc 1 is certain to start at E01 and is exactly the disc that
-        # must still ask it.
-        continued = sure and db.next_episode(
-            (series or {}).get("id"), season,
-            series_name=(series or {}).get("name") or series_name) is not None
+    moved_from = None
+    # How many numbers this disc uses, so a disc whose *successor* is already in
+    # the library can count back from it. A double-length title uses two.
+    count = sum(2 if t["index"] in (found.get("doubles") or []) else 1
+                for t in found["episodes"])
+    filed_first, sure = db.season_start(
+        (series or {}).get("id"), season,
+        series_name=(series or {}).get("name") or series_name,
+        disc=disc_no, count=count)
+    # "Continued" means a disc of this season is already in the library, which is
+    # what settles the broadcast-order question below -- not merely that the start
+    # is certain. Disc 1 is certain to start at E01 and is exactly the disc that
+    # must still ask it.
+    continued = bool(sure) and db.next_episode(
+        (series or {}).get("id"), season,
+        series_name=(series or {}).get("name") or series_name) is not None
+    if remembered_first is None:
+        first = filed_first
         guessed = first is not None and not sure
+    elif continued and neighbour and filed_first is not None \
+            and filed_first != remembered_first:
+        # The memory is older than the library. DS9 season 4: discs answered with
+        # guessed starts and then skipped remembered E09 for disc 3, but disc 2 was
+        # later filed as E04-E07. The filed disc wins, and says so.
+        moved_from, first = remembered_first, filed_first
+    else:
+        continued = continued and filed_first == remembered_first
     if first is None:
         first = 1
     # Whether anything about this season has been settled before. The first disc is the
@@ -1754,12 +1771,17 @@ def _identify_season(job, s, d, titles, remembered):
     plan["series_options"] = options
     # You have already answered for this set, and the numbers follow on from a filed disc.
     # Nothing is left to ask -- unless this disc has its own doubt about what a title is.
-    carried = bool(sibling) and continued and not found.get("unsure_doubles")
+    carried = bool(neighbour) and continued and not found.get("unsure_doubles")
+    if moved_from is not None:
+        plan["warnings"].insert(0, (
+            "Riparr remembered E%02d as this disc's first episode, but %s is filed and "
+            "ends right before E%02d, so the numbering carries on from there."
+            % (moved_from, neighbour["disc_label"], first)))
     if carried:
         plan["warnings"].insert(0, (
             "Show and numbering carried on from %s, which you already filed. The order "
             "within this disc is still the disc's own, so check it if something looks off."
-            % sibling["disc_label"]))
+            % neighbour["disc_label"]))
     # Offered, unticked. Most people want the episodes and nothing else; the ones who
     # want the featurettes want them filed where Plex and Jellyfin will show them.
     plan["extras"] = [{"title_index": t["index"], "seconds": t["seconds"],

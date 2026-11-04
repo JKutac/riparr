@@ -787,6 +787,49 @@ check("a refused key is an empty answer, not a crash", rip.tv.tmdb_episodes(493,
 (rip.tv.search_series, rip.tv.episodes, rip.tv.dvd_order, rip.tv._get, rip.tv._tmdb_get) = _saved
 db.set("tv_metadata", False)
 db.set("tmdb_api_key", "")
+
+print("a remembered start loses to a filed neighbour, and a held plan renames as it renumbers")
+fresh_share()
+os.environ["RIPARR_MOCK_DISC"] = "dvd"
+_saved = (rip.tv.search_series, rip.tv.episodes, rip.tv.dvd_order)
+SHOW = {"id": 79, "name": "Carry Show", "year": "1995", "score": 1.0, "runtime": 45}
+rip.tv.search_series = lambda name, limit=6: [SHOW]
+rip.tv.episodes = lambda sid, include_specials=True: [
+    {"season": 1, "number": n, "name": "Name %d" % n, "runtime": 45, "special": False}
+    for n in range(1, 31)]
+rip.tv.dvd_order = lambda sid: {}
+db.set("tv_metadata", True)
+db.set("on_season_disc", "unsure")
+c1 = run_all(new_job("CARRY_SHOW_S01_D01"))
+check("disc 1 on DVD is held", c1["state"], "needs_input")
+names = {str(e["title_index"]): e["episode_title"] for e in db.episode_plan(c1)["episodes"]}
+check("the plan carries the season's names for the page",
+      db.episode_plan(c1)["guide_names"]["3"], "Name 3")
+first_ti = db.episode_plan(c1)["episodes"][0]["title_index"]
+names[str(first_ti)] = "Typed By Hand"
+ok, _m = rip.answer(c1["id"], season=1, first_episode=2, series_id=79,
+                    name="Carry Show", episode_titles=names)
+cp = db.episode_plan(db.get_job(c1["id"]))
+check("renumbering renames what nobody typed, and keeps what was typed",
+      [e["episode_title"] for e in cp["episodes"]][:3], ["Typed By Hand", "Name 3", "Name 4"])
+send(c1["id"])
+last = max(e["episode_last"] for e in cp["episodes"])
+db.record_disc("fp-CARRY_SHOW_S01_D02", series_id=79, season=1, series_name="Carry Show",
+               first_episode=last + 3)
+c2 = run_all(new_job("CARRY_SHOW_S01_D02"))
+p2 = db.episode_plan(c2)
+check("a stale memory gives way to the filed disc, without asking",
+      (c2["state"], p2["episodes"][0]["episode"]), ("done", last + 1))
+contains("and says so", " ".join(p2["warnings"]), "Riparr remembered E%02d" % (last + 3))
+last2 = max(e["episode_last"] for e in p2["episodes"])
+db.record_disc("fp-CARRY_SHOW_S01_D03", series_id=79, season=1, series_name="Carry Show",
+               first_episode=last2 + 1)
+c3 = run_all(new_job("CARRY_SHOW_S01_D03"))
+check("a memory that agrees is carried, not held",
+      (c3["state"], db.episode_plan(c3)["episodes"][0]["episode"]), ("done", last2 + 1))
+(rip.tv.search_series, rip.tv.episodes, rip.tv.dvd_order) = _saved
+os.environ.pop("RIPARR_MOCK_DISC")
+db.set("tv_metadata", False)
 db.set("on_season_disc", "unsure")
 
 print("")

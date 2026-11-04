@@ -1237,6 +1237,12 @@ def number_rows(rows, season, start, episode_list=None, dvd_map=None, typed=(),
 
 # ── turning all of that into a list of files ─────────────────────────────────
 
+def guide_names(episode_list, season):
+    """{"number": name} for one season, so the page can rename rows as it renumbers them."""
+    return {str(e["number"]): e.get("name") or "" for e in episode_list or []
+            if season is not None and e["season"] == season and not e.get("special")}
+
+
 def build_plan(found, season=None, first_episode=1, series=None, episode_list=None,
                dvd_map=None, fit_runtimes=False):
     """The list of episodes to rip, numbered and named.
@@ -1275,6 +1281,7 @@ def build_plan(found, season=None, first_episode=1, series=None, episode_list=No
         "order_source": found["order_source"],
         "confidence": found["confidence"],
         "play_all_index": (found.get("play_all") or {}).get("index"),
+        "guide_names": guide_names(episode_list, season),
         "episodes": plan,
     }
 

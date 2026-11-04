@@ -1236,7 +1236,9 @@ function seasonPrompt(j) {
         return "";
       })()}
 
-      <div class="ep-table" id="ep-rows" data-dvd="${esc(JSON.stringify(plan.dvd_map || {}))}">
+      <div class="ep-table" id="ep-rows" data-dvd="${esc(JSON.stringify(plan.dvd_map || {}))}"
+           data-names="${esc(JSON.stringify(plan.guide_names || {}))}"
+           data-season="${plan.season ?? ""}">
         ${rows.map((e, i) => episodeRow(e, i, rows.length)).join("")}
       </div>
 
@@ -1277,6 +1279,7 @@ function episodeRow(e, i, total) {
       <span class="ep-num">${esc(episodeCode(e))}${span ? "" : ""}</span>
       <span class="ep-dur">${esc(duration(e.seconds))}</span>
       <input class="ep-title" value="${esc(e.episode_title || "")}"
+             data-orig="${esc(e.episode_title || "")}"
              placeholder="${span ? "Two episodes in one file" : "No name"}">
       <span class="ep-src muted">${esc(e.source || `Title ${e.title_index}`)}</span>
       <span class="ep-move">
@@ -4280,6 +4283,11 @@ function wireContent(section, sub) {
     // position holds -- the same mapping the box applies (tv.number_rows).
     let dvd = {};
     try { dvd = JSON.parse(($("#ep-rows") || {}).dataset.dvd || "{}"); } catch (e) {}
+    // The season's names by number, so a renumbered row is renamed too. A name you
+    // edited stays (it no longer matches data-orig); the server keeps it the same way.
+    let names = {};
+    try { names = JSON.parse(($("#ep-rows") || {}).dataset.names || "{}"); } catch (e) {}
+    const sameSeason = season === Number(($("#ep-rows") || {}).dataset.season ?? season);
     const all = $$("#ep-rows .ep-row");
     const covered = Object.keys(dvd).length && (() => {
       let p = n;
@@ -4299,6 +4307,13 @@ function wireContent(section, sub) {
       if (!keep) { cell.textContent = "—"; }
       else {
         const a = covered && dvd[n], b = covered && dvd[n + span - 1];
+        const input = r.querySelector(".ep-title");
+        const fresh = a ? (a.name || "")
+          : [...Array(span).keys()].map(k => names[n + k] || "").filter(x => x).join(" + ");
+        if (sameSeason && Object.keys(names).length && input.value === input.dataset.orig) {
+          input.value = fresh;
+          input.dataset.orig = fresh;
+        }
         cell.textContent = a
           ? episodeCode({ season: a.season, episode: a.number,
                           episode_last: b && b.number === a.number + span - 1
