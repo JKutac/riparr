@@ -3235,9 +3235,9 @@ systemPages.status = async () => {
     <div class="section"><h2>More Info</h2>
       <div class="kv">
         <div class="k">Source</div><div class="v">
+          <a href="https://github.com/JKutac/riparr" target="_blank" rel="noopener">github.com/JKutac/riparr</a></div>
+        <div class="k">Based on</div><div class="v">
           <a href="https://github.com/jackharvest/riparr" target="_blank" rel="noopener">github.com/jackharvest/riparr</a></div>
-        <div class="k">Feature requests</div><div class="v">
-          <a href="https://github.com/jackharvest/riparr/issues" target="_blank" rel="noopener">github.com/jackharvest/riparr/issues</a></div>
         <div class="k">MakeMKV</div><div class="v">
           <a href="https://www.makemkv.com/forum/" target="_blank" rel="noopener">makemkv.com/forum</a></div>
       </div>

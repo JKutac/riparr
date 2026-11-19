@@ -8,6 +8,34 @@ bother updating.
 
 ---
 
+## 0.7.1-jk.1
+
+The first release of this fork (JKutac/riparr): upstream 0.7.1 plus the DVD TV fixes
+below. Boxes on this release update from the fork from now on.
+
+**DVD box sets are read correctly.** Seasons spread over several DVDs number on from
+the disc before, and anything the disc can't settle on its own is held for you instead
+of filed. A long episode inside a play-all is still a season, and is filed as the
+guide's special. A disc label's season the guide doesn't have counts as unknown.
+
+**Copies of episodes aren't counted as new ones.** A cut-down copy of an episode, or a
+title that plays two episodes back to back, is no longer numbered as the next
+episode, which used to push every number after it out by one or two. The disc is
+held and the warning says which titles it repeats.
+
+**The hold page does more.** Picking a different series renames the episodes on the
+page, a typed episode name takes its guide number, and any row can be filed as a
+Season 00 special.
+
+**Accented names reach the NAS intact.** The library is mounted as UTF-8, so a title
+like "Séance" is no longer stored garbled and reported missing.
+
+**Films are named better.** A film is named from the disc's own name before its volume
+label, a film with an alternate presentation isn't read as a two-episode season, and
+an empty scan of a video disc stops instead of becoming an ISO.
+
+---
+
 ## 0.7.1
 
 **Shares on older NASes now connect.** Riparr used to try SMB 3.1.1, 3.0 and 2.1 when

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Install or upgrade Riparr on the appliance.
 #
-#   curl -fsSL https://raw.githubusercontent.com/jackharvest/riparr/main/tools/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/JKutac/riparr/main/tools/install.sh | sudo bash
 #
 # Safe to run again: re-running upgrades in place and keeps your database, settings and
 # shares. Reads the port the preparer wrote to the boot partition, if it is there.
 set -euo pipefail
 
-REPO_URL="${RIPARR_REPO_URL:-https://github.com/jackharvest/riparr}"
+REPO_URL="${RIPARR_REPO_URL:-https://github.com/JKutac/riparr}"
 BRANCH="${RIPARR_BRANCH:-main}"
 INSTALL_DIR="${RIPARR_INSTALL_DIR:-/opt/riparr}"
 DATA_DIR=/var/lib/riparr

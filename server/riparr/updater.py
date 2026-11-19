@@ -1,5 +1,6 @@
 """
-Updates, against the official repository.
+Updates, against this fork's releases (JKutac/riparr), not upstream jackharvest/riparr:
+an upstream release would replace the fork's fixes.
 
 An appliance with no screen must be able to update itself without the user finding a
 terminal, and must never leave itself unbootable if the download is bad. So: check,
@@ -20,7 +21,7 @@ import urllib.request
 from . import __version__
 from . import platform as P
 
-REPO = "jackharvest/riparr"
+REPO = "JKutac/riparr"
 GITHUB_API = "https://api.github.com"
 INSTALL_DIR = os.environ.get("RIPARR_INSTALL_DIR", "/opt/riparr")
 SERVICE = "riparr.service"

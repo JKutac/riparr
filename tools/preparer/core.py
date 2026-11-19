@@ -28,7 +28,7 @@ import hostos
 import boards
 
 # The official repository. The updater and the image manifest both hang off this.
-RIPARR_REPO = "jackharvest/riparr"
+RIPARR_REPO = "JKutac/riparr"
 GITHUB_API = "https://api.github.com"
 
 # Riparr's port. The *arr family uses doubled digit-pairs -- Radarr 7878, Sonarr 8989,
