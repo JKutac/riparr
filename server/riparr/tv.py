@@ -449,6 +449,33 @@ def _dvd_repeats(titles, floor):
     return out
 
 
+# Two titles' lengths, each rounded to the second, add up to within this of a title that
+# plays both of them.
+JOIN_TOLERANCE_SECONDS = 1
+
+
+def _joined_pair(t, cluster):
+    """[a, b] if DVD title `t` runs exactly as long as two episodes next to each other on
+    the disc -- the pair again, back to back -- else None.
+
+    A season set put two of a disc's episodes in a title of their own as well, in a title
+    set of its own, so no cell is shared to say so. At twice an episode it read as a
+    double-length episode, was numbered E26-E27, and the next disc was counted on from
+    there, two too high. A real double-length episode can land on the same sum by chance,
+    so this only holds the disc and says why; the title is kept.
+
+    Only with four or more episodes: on a two-episode disc a title as long as both is
+    the expected play-all, which `unsure_doubles` speaks for.
+    """
+    if t.get("source") or parse_segments(t.get("segments")) or len(cluster) < 4:
+        return None
+    eps = sorted(cluster, key=lambda e: e["index"])
+    for a, b in zip(eps, eps[1:]):
+        if abs(a["seconds"] + b["seconds"] - t["seconds"]) <= JOIN_TOLERANCE_SECONDS:
+            return [a["index"], b["index"]]
+    return None
+
+
 def _order_by_segments(episodes, play_all):
     """Order the episodes the way the play-all plays them, or None if it can't say.
 
@@ -673,7 +700,12 @@ def analyse(titles, min_seconds=120):
     # `plan_warnings` says why. The same argument `_dedup` makes for erring towards
     # duplicates.
     unsure_doubles = []
+    joined = {}
     for t in list(doubles):
+        parts = _joined_pair(t, cluster)
+        if parts:
+            joined[t["index"]] = parts
+            continue
         if _really_plays_all(t, cluster, by_length=False):
             doubles.remove(t)
             if not play_all:
@@ -774,6 +806,7 @@ def analyse(titles, min_seconds=120):
         "dedup_signal": _dedup_signal(remaining),
         "doubles": [t["index"] for t in doubles],
         "unsure_doubles": unsure_doubles,
+        "joined": joined,
         "outside_play_all": [t["index"] for t in outside],
         "odd_in_play_all": odd,
         "repeats": repeats,
@@ -1584,6 +1617,11 @@ def plan_warnings(plan, found, episode_list=None):
                    "may be a double-length episode or a \u201cplay all\u201d, and this "
                    "disc can't say which, so it is kept. If it's a repeat of them, "
                    "untick it." % idx)
+    for idx, (a, b) in sorted((found.get("joined") or {}).items()):
+        out.append("Title %d runs exactly as long as titles %d and %d together. It may be "
+                   "those two episodes again, back to back, or a double-length episode; "
+                   "this disc can't say which, so it is kept. If it's a repeat, untick it "
+                   "and the numbers after it move up." % (idx, a, b))
     if found.get("beyond_play_all"):
         n = len(found["beyond_play_all"])
         out.append("The disc's \u201cplay all\u201d stops short: %d episode%s after it %s "

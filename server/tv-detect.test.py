@@ -247,6 +247,31 @@ f_ss = tv.analyse(SAME_SET, FLOOR)
 check("episodes sharing a title set aren't copies of each other",
       (len(f_ss["episodes"]), f_ss["repeats"]), (7, {}))
 
+print("a title that is two episodes back to back is held, not counted on from (real disc)")
+# Six episodes, each in its own title set, cut-down copies of three, and a title in a
+# set of its own that plays titles 1 and 2 end to end: 1579 + 1537 = 3116.
+JOIN = [pgc(0, 1574, "B1_t00.mkv", "1-9,10", 9), pgc(1, 1579, "C1_t01.mkv", "1-8,9", 8),
+        pgc(2, 1537, "D1_t02.mkv", "1-9,10", 8), pgc(3, 1026, "D7_t03.mkv", "4-9,10", 2),
+        pgc(4, 1542, "E1_t04.mkv", "1-10,11", 10), pgc(5, 1543, "F1_t05.mkv", "1-9,10"),
+        pgc(6, 639, "F6_t06.mkv", "7-9,10", 4), pgc(7, 1547, "G1_t07.mkv", "1-14,15", 8),
+        pgc(8, 1502, "G7_t08.mkv", "3-14,15"),
+        pgc(9, 3116, "A1_t09.mkv", "16-23,24-32,33", 15), pgc(10, 336, "K1_t10.mkv", "1,2", 2)]
+f_j = tv.analyse(JOIN, FLOOR)
+check("it is named as the pair it plays", f_j["joined"], {9: [1, 2]})
+check("and kept, for a person to untick",
+      [e["index"] for e in f_j["episodes"]], [0, 1, 2, 4, 5, 7, 9])
+check("the warning names both titles",
+      any("Title 9 runs exactly as long as titles 1 and 2" in w for w in tv.plan_warnings(
+          tv.build_plan(f_j, season=2, first_episode=20), f_j)), True)
+NOT_JOINED = [dict(t, seconds=3170) if t["index"] == 9 else t for t in JOIN]
+check("a double-length episode that matches no pair is just a double",
+      tv.analyse(NOT_JOINED, FLOOR)["joined"], {})
+TWO_PLUS = [pgc(0, 1500, "B1_t00.mkv", "1-9,10"), pgc(1, 1520, "C1_t01.mkv", "1-9,10"),
+            pgc(2, 3020, "A1_t02.mkv", "1-9,10-19,20", 15)]
+f_tp = tv.analyse(TWO_PLUS, FLOOR)
+check("two episodes and a title as long as both is left to the play-all rule",
+      (f_tp or {}).get("joined"), {})
+
 check("the disc's own label is read", tv.season_from_label("EXS1D1"), (1, 1))
 check("and the show's name kept", tv.series_name_from_label("EXS1D1"), "Ex")
 check("a lone S1 inside a word is not a season", tv.season_from_label("CLASS1"), (None, None))
