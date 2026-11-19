@@ -8,7 +8,7 @@ bother updating.
 
 ---
 
-## 0.7.1-jk.1
+## 0.7.1.1
 
 The first release of this fork (JKutac/riparr): upstream 0.7.1 plus the DVD TV fixes
 below. Boxes on this release update from the fork from now on.
