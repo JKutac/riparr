@@ -3808,6 +3808,21 @@ def _finish(job, s, transport, name, local_path, sent_from_card=False):
 # the titles *are*.
 CARD_SETTLES = {"season", "guessed", "dvd", "order", "witness"}
 
+# Warnings about what a disc couldn't say on its own -- which season, where its episodes
+# start, their order, their names, whether a title repeats another. Once every title's
+# card has been read, the cards have said it, so these are dropped rather than left on a
+# job whose episodes are already right. Matched by how each one starts.
+CARD_ANSWERED = (
+    "This disc doesn't say what order its episodes are in",
+    "Episode order is taken from the disc's playlist numbering",
+    "This disc reports no playlist information",
+    "The label says ",
+    "This is disc ",
+    "No season number",
+    "This numbering runs past the end of season",
+    "No episode titles were found",
+)
+
 
 def _read_title_cards(job, s, cancel_ev):
     """Name a season's episodes from their title cards, where the show has them.
@@ -3917,7 +3932,9 @@ def _read_title_cards(job, s, cancel_ev):
     plan["cards_read"] = {"read": len(applied), "of": len(rows)}
 
     if every:
-        plan.setdefault("warnings", []).insert(0, (
+        plan["warnings"] = [w for w in plan.get("warnings") or []
+                            if not w.startswith(CARD_ANSWERED)]
+        plan["warnings"].insert(0, (
             "Every episode was named from its title card: the first-aired date or the "
             "name on screen, matched against the episode guides."))
         hold = plan.get("hold")

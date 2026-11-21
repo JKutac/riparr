@@ -538,6 +538,8 @@ contains("and the plan says where the names came from", p1["warnings"][0],
          "named from its title card")
 check("each row keeps what its card said",
       p1["episodes"][4]["card"]["name"], "Card Episode 11")
+check("and the warnings the cards answered are gone",
+      [w for w in p1["warnings"] if w.startswith(rip.CARD_ANSWERED)], [])
 
 agree = ["Card Episode 1", "Card Episode 2", None, "Card Episode 4",
          "Card Episode 5", "Card Episode 6"]
