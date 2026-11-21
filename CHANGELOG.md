@@ -8,6 +8,13 @@ bother updating.
 
 ---
 
+## 0.7.1.4
+
+**A disc named from its title cards no longer carries warnings the cards answered.**
+When every episode's card is read, the warnings about the disc's episode order, a
+label that names a volume rather than a season, a missing season number or episode
+names, or possible repeated episodes are dropped, since the cards settled them.
+
 ## 0.7.1.3
 
 **Episodes are named from their title cards.** After a season disc is ripped, Riparr
