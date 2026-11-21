@@ -809,6 +809,29 @@ def album_plan(job):
         return {}
 
 
+def episode_job_for_remote_name(name, exclude_id=None):
+    """The last TV job with an episode filed at this path on the share.
+
+    A season job's own `remote_name` is only its last episode, so the episodes are
+    found in the plans. A job that is still going (a retry, say) does not count as the
+    owner of a file it wrote on an earlier attempt; `exclude_id` is that job.
+    """
+    if not name:
+        return None
+    rows = conn().execute(
+        "SELECT * FROM jobs WHERE kind='tv' AND episode_plan IS NOT NULL AND id IS NOT ? "
+        "ORDER BY id DESC", (exclude_id,)).fetchall()
+    for row in rows:
+        try:
+            plan = json.loads(row["episode_plan"]) or {}
+        except (ValueError, TypeError):
+            continue
+        for e in plan.get("episodes") or []:
+            if e.get("remote_name") == name and e.get("state") == "done":
+                return dict(row)
+    return None
+
+
 def job_with_remote_name(name, fingerprint):
     """A finished job from this disc that wrote to this album folder -- which makes
     writing there again a re-rip, not an overwrite of somebody else's."""

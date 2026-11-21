@@ -3562,6 +3562,13 @@ def _transfer_season(job, s, base, cancel_ev):
         name = _episode_name(job, s, plan, row)
         if row.get("extra"):
             name = _free_extra_name(transport, name)
+        else:
+            name, warning = _avoid_clobbering_episode(transport, name, job)
+            if warning:
+                log.warning("Job %d: %s", job["id"], warning)
+                now = db.get_job(job["id"]) or {}
+                db.update_job(job["id"], warning=" ".join(
+                    w for w in (now.get("warning"), warning) if w))
         where = "Sending %s — %d of %d" % (episode_label(row), n, len(pending))
 
         db.stage_start(job["id"], "upload")
@@ -3585,9 +3592,6 @@ def _transfer_season(job, s, base, cancel_ev):
             log.info("Job %d: %s filed directly (%s)", job["id"],
                      episode_label(row), dest)
         else:
-            name, warning = _avoid_clobbering(transport, name, job, s)
-            if warning:
-                log.warning("Job %d: %s", job["id"], warning)
             total = os.path.getsize(local)
             started = time.time()
 
@@ -3639,6 +3643,49 @@ def _transfer_season(job, s, base, cancel_ev):
         shutil.rmtree(os.path.join(root, ".riparr-incoming", "job-%d" % job["id"]),
                       ignore_errors=True)
     return transport, _season_folder(job, s, plan, rows), base
+
+
+def _avoid_clobbering_episode(transport, name, job):
+    """Never replace an episode another disc filed. Returns (name, warning).
+
+    Two discs land on the same episode path when one of them is numbered wrong -- a
+    volume that carries an episode out of the guide's order shifts everything after it,
+    and the next disc starts where the guide says, not where the shifted disc ended.
+    Writing over the path then silently loses the first disc's episode, and both jobs
+    say "done". The same disc ripped again is a re-rip and replaces its own file;
+    anything else is kept, and this one goes beside it as a second version, which Plex
+    and Jellyfin both show, with a warning saying which disc was there first.
+    """
+    try:
+        if transport.size(name) is None:
+            return name, None
+    except Exception:
+        return name, None                          # cannot ask: proceed as before
+    prior = db.episode_job_for_remote_name(name, exclude_id=job.get("id"))
+    mine = job.get("fingerprint") or ""
+    if mine and prior and (prior.get("fingerprint") or "") == mine:
+        return name, None                          # the same disc, ripped again
+    if not prior and _filed_by_this_job(job, name):
+        return name, None                          # this job's own earlier attempt
+    tag = SOURCE_TAG.get(job.get("disc_family") or "") or "Copy"
+    stem, dot, ext = name.rpartition(".")
+    tagged = "%s - %s%s%s" % (stem, tag, dot, ext) if dot else "%s - %s" % (name, tag)
+    tagged = _free_extra_name(transport, tagged)
+    who = ("from %s, a different disc" % (prior.get("disc_label") or prior.get("title")
+                                          or "another disc")
+           if prior else "that Riparr didn't put there")
+    return tagged, ("%s was already in your library, %s, so this disc's episode was "
+                    "saved beside it as “%s” instead of replacing it. One of "
+                    "the two is probably numbered wrong: check them and rename one."
+                    % (os.path.basename(name), who, os.path.basename(tagged)))
+
+
+def _filed_by_this_job(job, name):
+    """Whether this job's stored plan already has an episode at `name` -- a retry
+    finding what its own first attempt wrote."""
+    stored = db.get_job(job["id"]) if job.get("id") else None
+    plan = db.episode_plan(stored) if stored else None
+    return any(e.get("remote_name") == name for e in (plan or {}).get("episodes") or [])
 
 
 def _free_extra_name(transport, name):

@@ -436,6 +436,53 @@ check("finished", dj["state"], "done")
 check("all six survived the transfer", len(share_files()), 6)
 db.set("transfer_mode", "burst")
 
+print("a disc numbered onto another disc's episode keeps both")
+# Found on a classic sitcom box set: one volume carried an episode out of the guide's
+# order, the next volume started at the guide's number, and its first episode was
+# written over the last episode of the volume before. Both jobs said "done".
+
+
+def run_shifted(label, first):
+    """As `run`, with the plan renumbered to start at `first` -- the wrong answer a
+    person (or a shifted disc) gives."""
+    os.environ["RIPARR_MOCK_LABEL"] = label
+    s = rip._settings()
+    job = rip._identify(new_job(label), s)
+    for i, e in enumerate(season_rows_of(job)):
+        e["episode"] = e["episode_last"] = e["position"] = e["position_last"] = first + i
+    base = rip._rip_season(job, s, threading.Event())
+    transport, folder, base = rip._transfer_season(job, s, base, threading.Event())
+    rip._finish_season(job, s, transport, folder, base)
+    return db.get_job(job["id"])
+
+
+def season_rows_of(job):
+    return [e for e in job["_plan"]["episodes"] if not e.get("extra")]
+
+
+for mode in ("burst", "direct"):
+    fresh_share()
+    db.set("transfer_mode", mode)
+    db.set("on_season_disc", "auto")
+    a = run(new_job("CLASH_%s_S01_D01" % mode.upper()))
+    before = share_files()
+    b = run_shifted("CLASH_%s_S01_D02" % mode.upper(), 6)
+    after = share_files()
+    check("%s: nothing of disc one was replaced" % mode,
+          all(os.path.getsize(os.path.join(SH.MOCK_SHARE_ROOT, f)) > 0 for f in before)
+          and set(before) <= set(after), True)
+    clash = [f for f in after if "S01E06" in f]
+    check("%s: two copies of E06 sit side by side" % mode, len(clash), 2)
+    check("%s: all twelve files are there" % mode, len(after), 12)
+    contains("%s: and the second disc says so" % mode, b["warning"] or "",
+             "CLASH_%s_S01_D01, a different disc" % mode.upper())
+    again = run(new_job("CLASH_%s_S01_D01" % mode.upper()))
+    check("%s: the same disc ripped again replaces its own files" % mode,
+          len(share_files()), 12)
+    check("%s: without a warning about itself" % mode,
+          "a different disc" in (again["warning"] or ""), False)
+db.set("transfer_mode", "burst")
+
 print("MakeMKV's own message is what a failure says")
 # Found on Samurai Jack season 2: the NAS stalled 800 MB into episode 12, and the job
 # failed with "Saving to MKV file" -- the phase label, not the reason.
