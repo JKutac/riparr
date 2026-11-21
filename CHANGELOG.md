@@ -8,6 +8,22 @@ bother updating.
 
 ---
 
+## 0.7.1.3
+
+**Episodes are named from their title cards.** After a season disc is ripped, Riparr
+reads each episode's opening title card and matches the "first aired" date, or the
+episode's name on screen, against the guide. It looks where the show's card was last
+found, then in the first 20 seconds, and once per disc further in, for shows that open
+with a scene and the theme before the title. When every card is read, the episodes are
+numbered from them and a disc that was held only over the episode order is filed
+without asking. A card that disagrees with the disc's order, or two titles showing the
+same card, holds the disc. Boxes install ffmpeg and Tesseract for this with the DVD
+tools; without them nothing changes.
+
+**The hold page shows a frame of each episode it couldn't name.** Under any episode
+the cards didn't settle is the frame Riparr kept: the card itself if it found text,
+otherwise a moment from the episode. Click it for full size.
+
 ## 0.7.1.2
 
 **A season disc never files over another disc's episode.** When two discs land on the
