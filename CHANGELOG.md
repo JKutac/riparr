@@ -8,6 +8,14 @@ bother updating.
 
 ---
 
+## 0.7.1.2
+
+**A season disc never files over another disc's episode.** When two discs land on the
+same episode number, because one of them is numbered wrong, the second used to replace
+the first's file without a word. Now the first is kept and the second is saved beside
+it as another version, and the job's warning names the disc that was there first so
+you can rename the wrong one. Ripping the same disc again still replaces its own files.
+
 ## 0.7.1.1
 
 The first release of this fork (JKutac/riparr): upstream 0.7.1 plus the DVD TV fixes
