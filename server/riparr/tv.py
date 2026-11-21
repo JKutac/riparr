@@ -1221,6 +1221,8 @@ def episodes(series_id, include_specials=True):
             "name": e.get("name") or "",
             "runtime": e.get("runtime") or 0,
             "special": (e.get("type") or "regular") != "regular",
+            # What a title card's "first aired" line is matched against (cards.py).
+            "airdate": e.get("airdate") or "",
         })
     with _cache_lock:
         _episode_cache[key] = (time.time(), out)
@@ -1298,7 +1300,8 @@ def tmdb_episodes(series_id, key):
                     out.append({"season": n, "number": int(e["episode_number"]),
                                 "name": e.get("name") or "",
                                 "runtime": e.get("runtime") or 0,
-                                "special": n == 0})
+                                "special": n == 0,
+                                "airdate": e.get("air_date") or ""})
     except Exception as e:
         log.warning("TMDB episodes for TVmaze %s failed: %s", sid, e)
         return []

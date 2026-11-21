@@ -38,7 +38,7 @@ import threading
 import time
 
 from . import db, tv, led as LED, notify, platform as P, shares as SH, system as SY
-from . import backup as BK, music as MU, wikidata as WD
+from . import backup as BK, music as MU, wikidata as WD, cards as CARDS
 
 log = SY.component("Rip")
 
@@ -3802,6 +3802,147 @@ def _finish(job, s, transport, name, local_path, sent_from_card=False):
                 body="%s. It's in your library at %s." % (what, transport.describe(name)))
 
 
+# Holds a full set of title cards settles: each is about which episode is which, or
+# which season, and a card names the episode outright. Not "numbering" (no guide to
+# number from), nor a bonus disc, a finale or a doubtful special, which are about what
+# the titles *are*.
+CARD_SETTLES = {"season", "guessed", "dvd", "order", "witness"}
+
+
+def _read_title_cards(job, s, cancel_ev):
+    """Name a season's episodes from their title cards, where the show has them.
+
+    Runs after the rip, with the disc out: the files are complete, and nothing here
+    needs the drive. What it can settle it settles, and what it can't it leaves
+    exactly as the disc-order plan had it -- with a thumbnail of each unread title on
+    the plan, so a person checking the hold page sees what is on screen instead of
+    guessing from a runtime. See cards.py for how a card is read.
+
+    Every card read and matched, each to a different episode: the plan is renumbered
+    from them and, if it was held only over which episode is which, released. Some
+    read: those rows are pinned to their episodes, and the disc is held if what was read
+    disagrees with what the plan had. None read: nothing changes but the thumbnails.
+    """
+    plan = job["_plan"]
+    if not s.get("read_title_cards", True) or not plan.get("series_id"):
+        return
+    rows = [r for r in plan.get("episodes") or []
+            if r.get("include", True) and r.get("state") == "ripped" and r.get("path")]
+    if not rows:
+        return
+    if not CARDS.available():
+        log.info("Job %d: ffmpeg or tesseract is missing, so the title cards weren't "
+                 "read.", job["id"])
+        return
+    key = db.get("tmdb_api_key")
+    guide = CARDS.Guide(tv.episodes(plan["series_id"]),
+                        tv.tmdb_episodes(plan["series_id"], key) if key else [])
+    if not guide.names:
+        return
+    db.update_job(job["id"], phase="Reading the title cards")
+    try:
+        CARDS.sweep()
+    except Exception as e:
+        log.info("Couldn't sweep old title-card frames: %s", e)
+    found = CARDS.read_disc(job["id"], rows, guide, series_id=plan["series_id"],
+                            cancel=cancel_ev)
+    if not found:
+        return
+    episode_list, _numbering = _guide(plan["series_id"], key)
+    pins = {}
+    for r in rows:
+        res = found.get(int(r["title_index"]))
+        if not res:
+            continue
+        r["card"] = {"name": res["name"], "how": res["how"],
+                     "evidence": res["evidence"], "at": res["thumb_at"],
+                     "thumb": bool(res.get("thumb"))}
+        if res["name"]:
+            n = tv._guide_number_for(res["name"], plan.get("season"), episode_list)
+            if n is not None:
+                pins[int(r["title_index"])] = n
+
+    def finish(question=None):
+        if question:
+            hold = plan.get("hold") or {}
+            plan["hold"] = {"reason": hold.get("reason") or "cards", "question": question}
+        db.update_job(job["id"], episode_plan=plan, season=plan.get("season"))
+
+    if not pins:
+        if plan.get("hold"):
+            plan.setdefault("warnings", []).insert(0, (
+                "No title card could be read on this disc, so each episode is shown "
+                "with a frame from it to check by."))
+        finish()
+        return
+
+    # One title card shown by two titles: one of them is the same episode again.
+    by_pin = {}
+    for ti, n in pins.items():
+        by_pin.setdefault(n, []).append(ti)
+    repeats = {n: tis for n, tis in by_pin.items() if len(tis) > 1}
+    for n, tis in repeats.items():
+        for ti in tis:
+            pins.pop(ti, None)
+        plan.setdefault("warnings", []).insert(0, (
+            "Titles %s %s show the title card of S%02dE%02d. One of them is probably "
+            "that episode again; untick the repeat." % (
+                ", ".join(str(t) for t in sorted(tis)[:-1]) + " and %d" % sorted(tis)[-1],
+                "both" if len(tis) == 2 else "all", n[0], n[1])))
+
+    seasons = {n[0] for n in pins.values()}
+    season = None
+    if plan.get("season") is None and len(seasons) == 1:
+        season = seasons.pop()
+    before = {int(r["title_index"]): (r.get("season") if r.get("season") is not None
+                                      else plan.get("season"), r.get("episode"))
+              for r in rows}
+    names = {}
+    for ti, n in pins.items():
+        names[str(ti)] = next((e["name"] for e in episode_list
+                               if (e["season"], e["number"]) == n), "")
+    plan, error = _apply_season_answer(job, plan, season, None, None, None, names, None)
+    job["_plan"] = plan
+    if error:
+        log.warning("Job %d: couldn't apply the title cards: %s", job["id"], error)
+        finish()
+        return
+    rows = [r for r in plan.get("episodes") or [] if r.get("include", True)]
+    applied = {ti for ti, n in pins.items()
+               if any(int(r["title_index"]) == ti
+                      and (r.get("season"), r.get("episode"), r.get("episode_last"))
+                      == (n[0], n[1], n[1]) for r in rows)}
+    moved = [ti for ti in applied if before.get(ti) != pins[ti]]
+    every = (not repeats and len(applied) == len(pins) == len(rows))
+    plan["cards_read"] = {"read": len(applied), "of": len(rows)}
+
+    if every:
+        plan.setdefault("warnings", []).insert(0, (
+            "Every episode was named from its title card: the first-aired date or the "
+            "name on screen, matched against the episode guides."))
+        hold = plan.get("hold")
+        if (hold and hold.get("reason") in CARD_SETTLES
+                and plan.get("season") is not None):
+            plan.pop("hold", None)
+            plan["confidence"] = "high"
+            log.info("Job %d: every title card read; filing it without asking.",
+                     job["id"])
+        finish()
+        return
+
+    unread = len(rows) - len(applied)
+    question = ("Ripped and ejected. Riparr read %d of the %d title cards and named those "
+                "episodes from them; %s shown with a frame from %s — check %s and "
+                "Riparr files them." % (
+                    len(applied), len(rows),
+                    "the other is" if unread == 1 else "the other %d are" % unread,
+                    "it" if unread == 1 else "each", "it" if unread == 1 else "them"))
+    if plan.get("hold") or moved or repeats or len(applied) < len(pins):
+        finish(question)
+    else:
+        finish()
+
+
 def _hold_after_rip(job):
     """Park a season that has been read but can't be named yet.
 
@@ -4959,6 +5100,10 @@ def _run_job(job):
             base = _rip_season(job, s, cancel_ev)
             LED.announce("done")
             P.eject()
+            try:
+                _read_title_cards(job, s, cancel_ev)
+            except Exception as e:      # a helper, never a reason to lose a season
+                log.warning("Job %d: reading the title cards failed: %s", job["id"], e)
             if job["_plan"].get("hold"):
                 _hold_after_rip(job)
                 return

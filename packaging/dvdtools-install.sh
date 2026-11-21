@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Root half of the DVD backup tools. Started by riparr-dvdtools.service, which is
+# Root half of the DVD backup tools, and of the title-card reader (ffmpeg, tesseract). Started by riparr-dvdtools.service, which is
 # triggered by riparr-dvdtools.path when the web service -- or apply-system.sh after an
 # update -- drops a request file.
 #
@@ -67,6 +67,20 @@ say starting 0.05 "Installing the DVD backup tools"
 if ! command -v dvdbackup >/dev/null 2>&1; then
   say installing 0.15 "Installing dvdbackup"
   apt_install dvdbackup || fail "dvdbackup couldn't be installed."
+fi
+
+# Title-card reading (server/riparr/cards.py): ffmpeg pulls frames from a ripped
+# episode, tesseract reads the text on them. Only apt, and optional: without them a
+# season is numbered in disc order as before, so a failure here is logged and the DVD
+# backup tools still report ready.
+cards_missing=()
+command -v ffmpeg >/dev/null 2>&1 || cards_missing+=(ffmpeg)
+command -v tesseract >/dev/null 2>&1 || cards_missing+=(tesseract-ocr)
+dpkg -s tesseract-ocr-eng >/dev/null 2>&1 || cards_missing+=(tesseract-ocr-eng)
+if [ ${#cards_missing[@]} -gt 0 ]; then
+  say installing 0.25 "Installing the title-card reader" "${cards_missing[*]}"
+  apt_install "${cards_missing[@]}" \
+    || echo "The title-card reader couldn't be installed; seasons are numbered in disc order." >>"$LOG"
 fi
 
 if ! has_lib; then

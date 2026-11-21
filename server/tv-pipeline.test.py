@@ -89,6 +89,7 @@ def run_all(job):
     if job is None:
         return None
     base = rip._rip_season(job, s, threading.Event())
+    rip._read_title_cards(job, s, threading.Event())
     if job["_plan"].get("hold"):
         rip._hold_after_rip(job)
         return db.get_job(job["id"])
@@ -124,6 +125,7 @@ db.set("tv_metadata", False)          # no network in a test; names come from nu
 db.set("on_season_disc", "auto")      # exercise the unattended path first
 db.set("transfer_mode", "burst")      # stage on the card, then send
 db.set("verify_mode", "quick")
+db.set("read_title_cards", False)     # the mock discs aren't video; see "title cards"
 check("tv columns exist", "episode_plan" in db.get_job(db.create_job(state="queued")), True)
 
 # ── the unattended path ──────────────────────────────────────────────────────
@@ -482,6 +484,97 @@ for mode in ("burst", "direct"):
     check("%s: without a warning about itself" % mode,
           "a different disc" in (again["warning"] or ""), False)
 db.set("transfer_mode", "burst")
+
+print("title cards name the episodes the disc order can't")
+# A DVD volume carries an episode out of the guide's order. Its title card says which
+# it is, so the card's name wins over the count -- and a disc whose every card was
+# read is filed without being held.
+_cards_real = (rip.CARDS.available, rip.CARDS.read_disc, rip.tv.episodes,
+               rip.tv.search_series, rip.tv.dvd_order)
+rip.tv.search_series = lambda name, limit=6: [{"id": 91, "name": "Card Show",
+                                               "year": "1954", "score": 1.0}]
+rip.tv.episodes = lambda sid, include_specials=True: [
+    {"season": 1, "number": n, "name": "Card Episode %d" % n, "runtime": 26,
+     "special": False, "airdate": "1954-%02d-01" % n} for n in range(1, 13)]
+rip.tv.dvd_order = lambda sid: {}
+rip.CARDS.available = lambda: True
+_cards_said = {}
+
+
+def fake_read_disc(job_id, rows, guide, series_id=None, cancel=None, budget=0):
+    """What the reader would have found: one name (or None) per row, in disc order."""
+    names = _cards_said["names"]
+    return {int(r["title_index"]): {"name": n, "how": "date" if n else None,
+                                    "evidence": "1954-01-01" if n else "", "at": 7,
+                                    "text_at": 7, "seen": [], "thumb": True,
+                                    "thumb_at": 7}
+            for r, n in zip(rows, names)}
+
+
+rip.CARDS.read_disc = fake_read_disc
+db.set("tv_metadata", True)
+db.set("read_title_cards", True)
+db.set("on_season_disc", "unsure")
+
+
+def card_disc(label, names):
+    fresh_share()
+    db.conn().execute("DELETE FROM jobs WHERE title='Card Show'")
+    db.conn().execute("DELETE FROM discs")
+    db.conn().commit()
+    _cards_said["names"] = names
+    return run_all(new_job(label))
+
+
+every = ["Card Episode %d" % n for n in (1, 2, 3, 4, 11, 5)]
+c1 = card_disc("CARD_SHOW_S01_D01", every)
+p1 = db.episode_plan(c1)
+check("every card read: filed without asking", c1["state"], "done")
+check("numbered by the cards, not the count",
+      [e["episode"] for e in p1["episodes"]], [1, 2, 3, 4, 11, 5])
+check("the fifth title is E11 in the library",
+      any("S01E11 - Card Episode 11" in f for f in share_files()), True)
+contains("and the plan says where the names came from", p1["warnings"][0],
+         "named from its title card")
+check("each row keeps what its card said",
+      p1["episodes"][4]["card"]["name"], "Card Episode 11")
+
+agree = ["Card Episode 1", "Card Episode 2", None, "Card Episode 4",
+         "Card Episode 5", "Card Episode 6"]
+c2 = card_disc("CARD_SHOW_S01_D01", agree)
+check("cards that agree with a disc it trusted anyway don't stop it", c2["state"], "done")
+
+partial = ["Card Episode 1", "Card Episode 2", None, "Card Episode 4",
+           "Card Episode 11", "Card Episode 6"]
+c2 = card_disc("CARD_SHOW_S01_D01", partial)
+p2 = db.episode_plan(c2)
+check("a card that moves an episode, with one unread: held", c2["state"], "needs_input")
+contains("saying how many were read", c2["question"] or "", "read 5 of the 6 title cards")
+check("the unread row keeps a frame to check by",
+      (p2["episodes"][2]["card"]["name"], p2["episodes"][2]["card"]["thumb"]),
+      (None, True))
+check("and the rows that were read are named from them",
+      [e["episode"] for e in p2["episodes"]], [1, 2, 3, 4, 11, 6])
+
+repeat = ["Card Episode 1", "Card Episode 2", "Card Episode 2", "Card Episode 3",
+          "Card Episode 4", "Card Episode 5"]
+c3 = card_disc("CARD_SHOW_S01_D01", repeat)
+check("two titles with one card: held", c3["state"], "needs_input")
+contains("naming the repeat", db.episode_plan(c3)["warnings"][0],
+         "both show the title card of S01E02")
+
+rip.CARDS.available = lambda: False
+c4 = card_disc("CARD_SHOW_S01_D01", every)
+p4 = db.episode_plan(c4)
+check("without the tools nothing changes",
+      ([e["episode"] for e in p4["episodes"]], any(e.get("card") for e in p4["episodes"])),
+      ([1, 2, 3, 4, 5, 6], False))
+
+(rip.CARDS.available, rip.CARDS.read_disc, rip.tv.episodes, rip.tv.search_series,
+ rip.tv.dvd_order) = _cards_real
+db.set("read_title_cards", False)
+db.set("tv_metadata", False)
+db.set("on_season_disc", "auto")
 
 print("MakeMKV's own message is what a failure says")
 # Found on Samurai Jack season 2: the NAS stalled 800 MB into episode 12, and the job
@@ -854,8 +947,10 @@ def _fake_tmdb(path, key):
 rip.tv._tmdb_get = _fake_tmdb
 rip.tv._tmdb_cache.clear()
 check("special flagged, runtime kept", rip.tv.tmdb_episodes(101, "k"),
-      [{"season": 0, "number": 1, "name": "Extra", "runtime": 0, "special": True},
-       {"season": 1, "number": 1, "name": "Pilot", "runtime": 90, "special": False}])
+      [{"season": 0, "number": 1, "name": "Extra", "runtime": 0, "special": True,
+        "airdate": ""},
+       {"season": 1, "number": 1, "name": "Pilot", "runtime": 90, "special": False,
+        "airdate": ""}])
 def _boom(path, key):
     raise OSError("401")
 rip.tv._tmdb_get = _boom

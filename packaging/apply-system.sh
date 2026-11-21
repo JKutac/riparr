@@ -170,7 +170,9 @@ fi
 # service asks for itself once it is running (backup.start).
 if [ -f /etc/systemd/system/riparr-dvdtools.path ] && [ -d /run/riparr ]; then
     if ! command -v dvdbackup >/dev/null 2>&1 \
-       || ! ldconfig -p 2>/dev/null | grep -q 'libdvdcss\.so\.2'; then
+       || ! ldconfig -p 2>/dev/null | grep -q 'libdvdcss\.so\.2' \
+       || ! command -v ffmpeg >/dev/null 2>&1 \
+       || ! command -v tesseract >/dev/null 2>&1; then
         touch /run/riparr/dvdtools.request
         say "DVD backup tools requested (they install in the background)"
     fi

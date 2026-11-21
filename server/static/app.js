@@ -1250,7 +1250,7 @@ function seasonPrompt(j) {
       <div class="ep-table" id="ep-rows" data-dvd="${esc(JSON.stringify(plan.dvd_map || {}))}"
            data-names="${esc(JSON.stringify(plan.guide_names || {}))}"
            data-season="${plan.season ?? ""}">
-        ${rows.map((e, i) => episodeRow(e, i, rows.length)).join("")}
+        ${rows.map((e, i) => episodeRow(e, i, rows.length, j.id)).join("")}
       </div>
 
       ${extrasShown.length ? `
@@ -1301,7 +1301,35 @@ function seasonPrompt(j) {
     </div>`;
 }
 
-function episodeRow(e, i, total) {
+// What the title card said, for the source column: a read card is the strongest
+// evidence a row has, so it says so in place of the bare title number.
+function cardSource(e) {
+  const c = e.card;
+  if (!c || !c.name) return e.source || `Title ${e.title_index}`;
+  // Not the date as read: a card matched through a misread year would show the
+  // wrong year here, next to an answer that is right.
+  return c.how === "title" ? "Title card: name on screen" : "Title card: air date matched";
+}
+
+// A title Riparr couldn't name from its card shows the frame it kept: the card
+// itself when there was text on screen, otherwise a moment from the episode. Seeing
+// what plays settles in a second what a runtime can't.
+function cardFrame(e, jobId) {
+  const c = e.card;
+  if (!c || c.name || !c.thumb || !jobId) return "";
+  const src = `/api/queue/${jobId}/card/${e.title_index}`;
+  const at = Number.isFinite(c.at) ? ` at ${Math.floor(c.at / 60)}:${
+    String(Math.floor(c.at % 60)).padStart(2, "0")}` : "";
+  return `
+      <div class="ep-card">
+        <a href="${src}" target="_blank" rel="noopener" title="Open full size">
+          <img src="${src}" alt="A frame from title ${e.title_index}" loading="lazy"></a>
+        <span class="muted">Riparr couldn't read this one's title card. This is what
+          title ${e.title_index} shows${esc(at)} — name it above if you know it.</span>
+      </div>`;
+}
+
+function episodeRow(e, i, total, jobId) {
   const span = e.episode_last && e.episode_last > e.episode;
   return `
     <div class="ep-row" data-ti="${e.title_index}">
@@ -1311,7 +1339,7 @@ function episodeRow(e, i, total) {
       <input class="ep-title" value="${esc(e.episode_title || "")}"
              data-orig="${esc(e.episode_title || "")}"
              placeholder="${span ? "Two episodes in one file" : "No name"}">
-      <span class="ep-src muted">${esc(e.source || `Title ${e.title_index}`)}</span>
+      <span class="ep-src muted">${esc(cardSource(e))}</span>
       <span class="ep-move">
         <button class="btn tiny" data-special="${e.title_index}"
                 title="File as a special (Season 00), outside the numbering">S00</button>
@@ -1319,7 +1347,7 @@ function episodeRow(e, i, total) {
                 title="Move earlier">↑</button>
         <button class="btn tiny" data-down="${e.title_index}"
                 ${i === total - 1 ? "disabled" : ""} title="Move later">↓</button>
-      </span>
+      </span>${cardFrame(e, jobId)}
     </div>`;
 }
 

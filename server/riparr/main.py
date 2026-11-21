@@ -1415,6 +1415,20 @@ def rip_answer(job_id: int, body: DiscAnswer, user=Depends(require_user)):
     return {"ok": True, "message": message}
 
 
+@app.get("/api/queue/{job_id}/card/{title_index}")
+def card_thumbnail(job_id: int, title_index: int, user=Depends(require_user)):
+    """The frame Riparr kept of one title while reading its title card -- shown beside
+    the episodes it couldn't name, so a person can see what is on screen. Both parts of
+    the path are integers, so nothing outside the job's own card folder can be asked
+    for."""
+    from . import cards as CARDS
+    path = CARDS.thumb_path(job_id, title_index)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="No frame was kept for that title.")
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=3600"})
+
+
 @app.get("/api/tv/search")
 def tv_search(q: str = "", user=Depends(require_user)):
     """Series matching a name, for the picker on the episode-plan prompt.
